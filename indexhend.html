@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gesture Control Pro</title>
+
+<!-- MediaPipe -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<style>
+body{
+margin:0;
+font-family:Arial;
+background:#0f0f0f;
+color:#fff;
+text-align:center;
+}
+
+#top{
+padding:20px;
+}
+
+video{
+width:100%;
+max-width:420px;
+border-radius:12px;
+margin-top:10px;
+background:#000;
+}
+
+button{
+padding:15px 25px;
+font-size:18px;
+border:none;
+border-radius:10px;
+background:#00c853;
+color:#fff;
+cursor:pointer;
+margin-top:10px;
+}
+
+#status{
+margin-top:15px;
+font-size:18px;
+color:#ffd54f;
+}
+
+#cursor{
+width:20px;
+height:20px;
+background:red;
+border-radius:50%;
+position:fixed;
+left:0;
+top:0;
+pointer-events:none;
+z-index:9999;
+}
+</style>
+</head>
+
+<body>
+
+<div id="top">
+<h2>التحكم بالموقع باليد ✋</h2>
+
+<button onclick="startCamera()">تشغيل الكاميرا</button>
+
+<div id="status">اضغط زر تشغيل الكاميرا</div>
+
+<video id="video" autoplay playsinline></video>
+</div>
+
+<div id="cursor"></div>
+
+<script>
+
+const statusText = document.getElementById("status")
+const video = document.getElementById("video")
+const cursor = document.getElementById("cursor")
+
+let cameraStarted = false
+
+function startCamera(){
+
+if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+
+statusText.innerText="المتصفح لا يدعم الكاميرا"
+return
+}
+
+statusText.innerText="طلب إذن الكاميرا..."
+
+navigator.mediaDevices.getUserMedia({
+video:{
+facingMode:"user",
+width:{ideal:640},
+height:{ideal:480}
+},
+audio:false
+})
+
+.then(stream=>{
+
+video.srcObject = stream
+statusText.innerText="تم تشغيل الكاميرا"
+
+initHandTracking()
+
+})
+
+.catch(err=>{
+
+console.log(err)
+
+if(err.name==="NotAllowedError"){
+statusText.innerText="تم رفض إذن الكاميرا"
+}
+
+else if(err.name==="NotFoundError"){
+statusText.innerText="لا توجد كاميرا في الجهاز"
+}
+
+else{
+statusText.innerText="فشل تشغيل الكاميرا"
+}
+
+})
+
+}
+
+function initHandTracking(){
+
+const hands = new Hands({
+locateFile:file =>
+`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+})
+
+hands.setOptions({
+maxNumHands:1,
+modelComplexity:1,
+minDetectionConfidence:0.7,
+minTrackingConfidence:0.7
+})
+
+hands.onResults(results=>{
+
+if(!results.multiHandLandmarks) return
+
+let hand = results.multiHandLandmarks[0]
+
+let x = hand[8].x * window.innerWidth
+let y = hand[8].y * window.innerHeight
+
+cursor.style.left = x + "px"
+cursor.style.top = y + "px"
+
+let thumb = hand[4]
+let index = hand[8]
+
+let dist = Math.hypot(
+thumb.x-index.x,
+thumb.y-index.y
+)
+
+if(dist < 0.05){
+
+statusText.innerText="نقرة"
+
+let el = document.elementFromPoint(x,y)
+
+if(el) el.click()
+
+}
+
+/* scroll */
+
+if(index.y < .2){
+window.scrollBy(0,-80)
+statusText.innerText="تمرير للأعلى"
+}
+
+if(index.y > .8){
+window.scrollBy(0,80)
+statusText.innerText="تمرير للأسفل"
+}
+
+if(index.x < .2){
+window.scrollBy(-80,0)
+statusText.innerText="يسار"
+}
+
+if(index.x > .8){
+window.scrollBy(80,0)
+statusText.innerText="يمين"
+}
+
+})
+
+const camera = new Camera(video,{
+onFrame:async ()=>{
+await hands.send({image:video})
+},
+width:640,
+height:480
+})
+
+camera.start()
+
+}
+
+</script>
+
+</body>
+</html>
