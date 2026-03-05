@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>التحكم بالإيماءات</title>
+
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<style>
+
+body{
+margin:0;
+background:#111;
+color:white;
+font-family:Arial;
+text-align:center;
+}
+
+video{
+width:100%;
+max-width:500px;
+border-radius:10px;
+margin-top:10px;
+}
+
+#status{
+margin-top:15px;
+font-size:20px;
+}
+
+</style>
+</head>
+
+<body>
+
+<h2>التحكم بالصفحة عبر اليد ✋</h2>
+
+<video id="video" autoplay playsinline></video>
+
+<div id="status">انتظر تشغيل الكاميرا...</div>
+
+<script>
+
+const video = document.getElementById("video")
+const statusText = document.getElementById("status")
+
+navigator.mediaDevices.getUserMedia({
+video:{
+facingMode:"user"
+}
+})
+.then(stream=>{
+video.srcObject = stream
+})
+
+const hands = new Hands({
+locateFile: file =>
+`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+})
+
+hands.setOptions({
+maxNumHands:1,
+modelComplexity:1,
+minDetectionConfidence:0.7,
+minTrackingConfidence:0.7
+})
+
+hands.onResults(results=>{
+
+if(!results.multiHandLandmarks) return
+
+let hand = results.multiHandLandmarks[0]
+
+let x = hand[8].x
+let y = hand[8].y
+
+/* ايماءة يسار */
+
+if(x < 0.25){
+
+statusText.innerText="👈 تحريك يسار"
+
+window.scrollBy(-60,0)
+
+}
+
+/* ايماءة يمين */
+
+else if(x > 0.75){
+
+statusText.innerText="👉 تحريك يمين"
+
+window.scrollBy(60,0)
+
+}
+
+/* ايماءة أعلى */
+
+if(y < 0.25){
+
+statusText.innerText="⬆️ تمرير للأعلى"
+
+window.scrollBy(0,-60)
+
+}
+
+/* ايماءة أسفل */
+
+else if(y > 0.75){
+
+statusText.innerText="⬇️ تمرير للأسفل"
+
+window.scrollBy(0,60)
+
+}
+
+/* كف مفتوحة */
+
+let fingers =
+hand[8].y < hand[6].y &&
+hand[12].y < hand[10].y &&
+hand[16].y < hand[14].y &&
+hand[20].y < hand[18].y
+
+if(fingers){
+
+statusText.innerText="✋ كف مفتوحة"
+
+}
+
+/* قبضة يد */
+
+let fist =
+hand[8].y > hand[6].y &&
+hand[12].y > hand[10].y &&
+hand[16].y > hand[14].y &&
+hand[20].y > hand[18].y
+
+if(fist){
+
+statusText.innerText="✊ قبضة يد"
+
+}
+
+})
+
+const camera = new Camera(video,{
+onFrame: async()=>{
+await hands.send({image:video})
+},
+width:640,
+height:480
+})
+
+camera.start()
+
+</script>
+
+</body>
+</html>
