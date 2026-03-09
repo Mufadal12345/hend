@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نتائجك وتحليلك - ماذا يرى الناس فيك؟</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="app.js" defer></script>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>تحليل شخصية: <span id="user-name-res" style="color:var(--primary);">...</span> 📊</h1>
+        <p>بناءً على إجابات أصدقائك الصريحة.</p>
+        <div class="mt-20">
+            <a href="dashboard.html" class="btn btn-secondary" style="width:auto; padding: 8px 15px;">العودة للوحة التحكم ⚙️</a>
+        </div>
+    </header>
+
+    <div id="loading-res" class="text-center">
+        <div class="loader"></div>
+        <p>جاري جمع وتحليل الإجابات...</p>
+    </div>
+
+    <div id="no-results" class="card text-center hidden">
+        <h2>لا توجد إجابات بعد 😢</h2>
+        <p>يبدو أنه لم يجب أحد على أسئلتك حتى الآن. شارك الرابط مجدداً!</p>
+        <a href="dashboard.html" class="btn btn-primary mt-20">نسخ رابط المشاركة</a>
+    </div>
+
+    <div id="results-block" class="hidden">
+        <div class="grid-2">
+            <div class="card stat-card">
+                <h3>عدد المشاركين</h3>
+                <div class="stat-number" id="total-resp">0</div>
+                <p>أصدقاء أجابوا</p>
+            </div>
+            <div class="card stat-card" id="viral-card">
+                <h3>ميزة قادمة 🚀</h3>
+                <p>تحليل الذكاء الاصطناعي لنقاطك العمياء.</p>
+                <button class="btn btn-success btn-share" style="font-size: 0.8rem; padding: 5px;">شارك لتحصل عليها</button>
+            </div>
+        </div>
+
+        <div id="charts-container"></div>
+
+        <div class="card">
+            <h2>✉️ رسائل وأراء مجهولة (نصوص حرة)</h2>
+            <div id="messages-container">
+                <p class="text-center" style="color:#666;">لا توجد رسائل نصية بعد.</p>
+            </div>
+        </div>
+        
+        <div class="text-center mt-20" style="margin-bottom: 30px;">
+             <p>هل تريد إجابات أكثر دقة؟</p>
+             <button onclick="window.location.href='dashboard.html'" class="btn btn-share mt-10" style="max-width:300px;">شارك الرابط مع مزيد من الأصدقاء 🔥</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, query, where, getDocs, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // Firebase Config
+    const firebaseConfig = { apiKey: "AIzaSyBhdK4tSzTUU_n1UV7b8hPJF1ZK9cmNR4s", authDomain: "liev-69588.firebaseapp.com", projectId: "liev-69588", storageBucket: "liev-69588.firebasestorage.app", messagingSenderId: "619867900437", appId: "1:619867900437:web:2ab4f6ad25b38b166c9c1c" };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // التحقق من صاحب الحساب
+    const loggedUserId = localStorage.getItem('soulSeekerUserId');
+    if(!loggedUserId) window.location.href = 'index.html';
+
+    async function loadResults() {
+        try {
+            // 1. جلب اسم المستخدم وعنوان الأسئلة (لربط الـ MCQ ID بنص السؤال)
+            const userDoc = await getDoc(doc(db, "users", loggedUserId));
+            if(!userDoc.exists()) return;
+            const userData = userDoc.data();
+            document.getElementById('user-name-res').innerText = userData.name;
+            const questionBank = userData.questionBank || [];
+
+            // 2. جلب جميع الإجابات الخاصة بهذا المستخدم
+            const q = query(collection(db, "responses"), where("userId", "==", loggedUserId));
+            const querySnapshot = await getDocs(q);
+            
+            document.getElementById('loading-res').classList.add('hidden');
+
+            if (querySnapshot.empty) {
+                document.getElementById('no-results').classList.remove('hidden');
+                return;
+            }
+
+            document.getElementById('results-block').classList.remove('hidden');
+            
+            const total = querySnapshot.size;
+            document.getElementById('total-resp').innerText = total;
+
+            // هيكل لجمع وتحليل البيانات
+            const mcqData = {}; // qId -> { qText, optionCounts: { "صادق": 5, ... } }
+            const textAnswers = []; // array of { friendName, qText, answer }
+
+            // معالجة كل وثيقة إجابة
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const answers = data.answers;
+                const friend = data.friendName || "مجهول";
+
+                for (const qId in answers) {
+                    const ansObj = answers[qId];
+                    if (ansObj.qType === 'mcq' && ansObj.answer) {
+                        if (!mcqData[qId]) {
+                            // إيجاد نص السؤال من البنك
+                            const qInfo = questionBank.find(qb => qb.id === parseInt(qId));
+                            mcqData[qId] = { qText: qInfo ? qInfo.text : ansObj.qText, counts: {} };
+                        }
+                        const option = ansObj.answer;
+                        mcqData[qId].counts[option] = (mcqData[qId].counts[option] || 0) + 1;
+                    } else if (ansObj.qType === 'text' && ansObj.answer) {
+                        textAnswers.push({ friend: friend, qText: ansObj.qText, answer: ansObj.answer });
+                    }
+                }
+            });
+
+            // 3. رسم المخططات البيانية للـ MCQ
+            renderCharts(mcqData, total);
+
+            // 4. عرض الرسائل النصية
+            renderMessages(textAnswers);
+
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ في تحميل النتائج.');
+        }
+    }
+
+    function renderCharts(mcqData, total) {
+        const container = document.getElementById('charts-container');
+        container.innerHTML = '';
+
+        for (const qId in mcqData) {
+            const data = mcqData[qId];
+            
+            const chartCard = document.createElement('div');
+            chartCard.className = 'card';
+            chartCard.innerHTML = `<h3>${data.qText}</h3><canvas id="chart-${qId}" width="400" height="200"></canvas>`;
+            container.appendChild(chartCard);
+
+            const labels = Object.keys(data.counts);
+            const counts = Object.values(data.counts);
+            const percentages = counts.map(c => ((c / total) * 100).toFixed(1));
+
+            const ctx = document.getElementById(`chart-${qId}`).getContext('document.getElementById(`chart-${qId}`)').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar', // شريطي أفقي
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'نسبة التصويت %',
+                        data: percentages,
+                        backgroundColor: 'rgba(108, 92, 231, 0.7)',
+                        borderColor: 'rgba(108, 92, 231, 1)',
+                        borderWidth: 1,
+                        borderRadius: 5
+                    }]
+                },
+                options: {
+                    indexAxis: 'y', // لجعل البار أفقي
+                    scales: {
+                        x: { beginAtZero: true, max: 100, title: { display: true, text: 'النسبة مئوية (%)' } }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+    }
+
+    function renderMessages(textAnswers) {
+        const container = document.getElementById('messages-container');
+        if(textAnswers.length > 0) container.innerHTML = ''; // تنظيف الافتراضي
+
+        // ترتيب حسب السؤال ثم الصديق للترتيب
+        textAnswers.sort((a,b) => a.qText.localeCompare(b.qText));
+
+        textAnswers.forEach(ans => {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'anon-message';
+            msgDiv.innerHTML = `
+                <div style="font-size:0.8rem; color:var(--primary); font-weight:bold; margin-bottom:5px;">السؤال: ${ans.qText}</div>
+                <p style="font-size:1rem;">"${ans.answer}"</p>
+                <div style="text-align:left; font-size:0.8rem; color:#888;">— من: ${ans.friend}</div>
+            `;
+            container.appendChild(msgDiv);
+        });
+    }
+
+    window.onload = loadResults;
+</script>
+</body>
+</html>

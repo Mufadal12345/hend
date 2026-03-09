@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة التحكم - إدارة أسئلتك ورابطك</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script> </head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>أهلاً <span id="hello-name"></span> 👋</h1>
+        <p>من هنا يمكنك إدارة اختبارك ومشاركة الرابط</p>
+        <div class="mt-20">
+            <a href="results.html" class="btn btn-primary" style="width: auto; padding: 8px 15px;">عرض نتائجك 📊</a>
+            <button id="logout-btn" class="btn btn-secondary" style="width: auto; padding: 8px 15px; margin-right: 10px;">خروج</button>
+        </div>
+    </header>
+
+    <div class="card" id="share-area">
+        <h2>🔗 رابط المشاركة الخاص بك</h2>
+        <p style="margin-bottom: 10px; color: #555;">انسخ الرابط وشاركه مع أصدقائك (واتساب، ستوري..) لتلقي الإجابات:</p>
+        <div id="link-display">جاري التحميل...</div>
+        <div class="d-flex">
+            <button id="copy-btn" class="btn btn-share">نسخ الرابط</button>
+            <button id="whatsapp-btn" class="btn btn-success">مشاركة عبر WhatsApp</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>⚙️ تخصيص الأسئلة (الحد الأقصى 10)</h2>
+        <p style="margin-bottom: 15px;">اختر الأسئلة التي تريد توجيهها لأصدقائك من البنك المكون من 30 سؤالاً، أو قم بتحريرها.</p>
+        
+        <div id="q-manager-loading"><div class="loader"></div></div>
+        
+        <div id="q-bank-list" class="hidden">
+            </div>
+
+        <button id="save-q-btn" class="btn btn-primary mt-20" disabled>حفظ التغييرات</button>
+    </div>
+</div>
+
+<div id="edit-modal" class="hidden" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:100;">
+    <div class="card" style="width: 90%; max-width: 500px; position:relative;">
+        <h3>تعديل السؤال</h3>
+        <input type="hidden" id="edit-q-id">
+        <div class="form-group">
+            <label>نص السؤال</label>
+            <input type="text" id="edit-q-text">
+        </div>
+        <div class="form-group">
+            <label>نوع الإجابة</label>
+            <select id="edit-q-type">
+                <option value="text">نص حر</option>
+                <option value="mcq">اختيار من متعدد</option>
+            </select>
+        </div>
+        <div id="edit-mcq-options-group" class="form-group hidden">
+            <label>الخيارات (افصل بينها بفاصلة ,)</label>
+            <input type="text" id="edit-q-options" placeholder="هادئ, قوي, مرح">
+        </div>
+        <div class="d-flex">
+            <button id="confirm-edit-btn" class="btn btn-primary">حفظ</button>
+            <button id="cancel-edit-btn" class="btn btn-secondary">إلغاء</button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, doc, getDoc, updateDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // Firebase Config
+    const firebaseConfig = { apiKey: "AIzaSyBhdK4tSzTUU_n1UV7b8hPJF1ZK9cmNR4s", authDomain: "liev-69588.firebaseapp.com", projectId: "liev-69588", storageBucket: "liev-69588.firebasestorage.app", messagingSenderId: "619867900437", appId: "1:619867900437:web:2ab4f6ad25b38b166c9c1c" };
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const userId = localStorage.getItem('soulSeekerUserId');
+    const userName = localStorage.getItem('soulSeekerUserName');
+
+    if(!userId) window.location.href = 'index.html';
+
+    document.getElementById('hello-name').innerText = userName;
+
+    // إعداد الرابط
+    const shareUrl = `${window.location.origin}/r/${userId}`;
+    const linkDisplay = document.getElementById('link-display');
+    linkDisplay.innerText = shareUrl;
+
+    // أزرار المشاركة
+    document.getElementById('copy-btn').addEventListener('click', () => {
+        navigator.clipboard.writeText(shareUrl).then(() => alert('تم نسخ الرابط! 👋'));
+    });
+
+    document.getElementById('whatsapp-btn').addEventListener('click', () => {
+        const text = `🔍 هل لديك الجرأة لمعرفة كيف أراك حقاً؟ اكتشف نقاطي العمياء وأجمل صفاتي عبر الرابط بصدق وبدون حرج 👇\n${shareUrl}`;
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    });
+
+    document.getElementById('logout-btn').addEventListener('click', () => {
+        localStorage.clear();
+        window.location.href = 'index.html';
+    });
+
+    // منطق إدارة الأسئلة
+    let currentBank = [];
+    let selectedIds = [];
+
+    async function loadQuestions() {
+        const docRef = doc(db, "users", userId);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+            const data = docSnap.data();
+            currentBank = data.questionBank || [];
+            selectedIds = data.selectedQuestions || [];
+            renderBank();
+        } else {
+            console.log("No such user!");
+        }
+        document.getElementById('q-manager-loading').classList.add('hidden');
+        document.getElementById('q-bank-list').classList.remove('hidden');
+    }
+
+    function renderBank() {
+        const listEl = document.getElementById('q-bank-list');
+        listEl.innerHTML = '';
+
+        currentBank.forEach(q => {
+            const isChecked = selectedIds.includes(q.id);
+            const item = document.createElement('div');
+            item.className = 'q-bank-item';
+            item.innerHTML = `
+                <div class="q-info">
+                    <input type="checkbox" id="q-${q.id}" ${isChecked ? 'checked' : ''} onchange="toggleQuestion(${q.id})">
+                    <label for="q-${q.id}" style="display:inline; margin-right:10px;">${q.text}</label>
+                    <span class="q-type-badge">${q.type === 'mcq' ? 'اختيارات' : 'نصي'}</span>
+                </div>
+                <button class="btn btn-secondary edit-q-trigger" style="width:auto; padding:5px 10px; font-size:0.8rem;" data-id="${q.id}">تعديل</button>
+            `;
+            listEl.appendChild(item);
+        });
+
+        // إضافة حدث التعديل
+        document.querySelectorAll('.edit-q-trigger').forEach(btn => {
+            btn.addEventListener('click', (e) => openEditModal(e.target.dataset.id));
+        });
+        
+        checkSelectionLimit();
+    }
+
+    // جعل الوظائف متاحة لـ window لعمل الـ onchange
+    window.toggleQuestion = (id) => {
+        id = parseInt(id);
+        if (selectedIds.includes(id)) {
+            selectedIds = selectedIds.filter(sid => sid !== id);
+        } else {
+            if(selectedIds.length >= 10) {
+                alert('الحد الأقصى هو 10 أسئلة نشطة فقط.');
+                document.getElementById(`q-${id}`).checked = false;
+                return;
+            }
+            selectedIds.push(id);
+        }
+        document.getElementById('save-q-btn').disabled = false;
+        checkSelectionLimit();
+    }
+
+    function checkSelectionLimit() {
+        const checks = document.querySelectorAll('#q-bank-list input[type="checkbox"]');
+        if(selectedIds.length >= 10) {
+            checks.forEach(c => { if(!c.checked) c.disabled = true; });
+        } else {
+            checks.forEach(c => c.disabled = false);
+        }
+    }
+
+    // مودال التعديل
+    const modal = document.getElementById('edit-modal');
+    const typeSelect = document.getElementById('edit-q-type');
+    const optionsGroup = document.getElementById('edit-mcq-options-group');
+
+    typeSelect.addEventListener('change', () => {
+        if(typeSelect.value === 'mcq') optionsGroup.classList.remove('hidden');
+        else optionsGroup.classList.add('hidden');
+    });
+
+    function openEditModal(id) {
+        id = parseInt(id);
+        const q = currentBank.find(qb => qb.id === id);
+        if(!q) return;
+
+        document.getElementById('edit-q-id').value = id;
+        document.getElementById('edit-q-text').value = q.text;
+        document.getElementById('edit-q-type').value = q.type;
+        document.getElementById('edit-q-options').value = q.options ? q.options.join(', ') : '';
+        
+        if(q.type === 'mcq') optionsGroup.classList.remove('hidden');
+        else optionsGroup.classList.add('hidden');
+
+        modal.classList.remove('hidden');
+    }
+
+    document.getElementById('cancel-edit-btn').addEventListener('click', () => modal.classList.add('hidden'));
+
+    document.getElementById('confirm-edit-btn').addEventListener('click', () => {
+        const id = parseInt(document.getElementById('edit-q-id').value);
+        const text = document.getElementById('edit-q-text').value.trim();
+        const type = document.getElementById('edit-q-type').value;
+        const optionsStr = document.getElementById('edit-q-options').value;
+
+        if(!text) { alert('نص السؤال مطلوب'); return; }
+
+        const qIndex = currentBank.findIndex(qb => qb.id === id);
+        currentBank[qIndex].text = text;
+        currentBank[qIndex].type = type;
+        
+        if(type === 'mcq') {
+            currentBank[qIndex].options = optionsStr.split(',').map(s => s.trim()).filter(s => s);
+            if(currentBank[qIndex].options.length < 2) { alert('يرجى إدخال خيارين على الأقل مفصولين بفاصلة'); return; }
+        } else {
+            delete currentBank[qIndex].options;
+        }
+
+        modal.classList.add('hidden');
+        renderBank();
+        document.getElementById('save-q-btn').disabled = false;
+    });
+
+    // حفظ التغييرات النهائية في Firebase
+    document.getElementById('save-q-btn').addEventListener('click', async () => {
+        if(selectedIds.length === 0) { alert('يرجى اختيار سؤال واحد على الأقل ليظهر للأصدقاء'); return; }
+        
+        const btn = document.getElementById('save-q-btn');
+        btn.innerText = 'جاري الحفظ...';
+        btn.disabled = true;
+
+        try {
+            await updateDoc(doc(db, "users", userId), {
+                questionBank: currentBank,
+                selectedQuestions: selectedIds
+            });
+            alert('تم حفظ تعديلات الأسئلة بنجاح! الرابط محدث الآن.');
+        } catch (e) {
+            console.error(e);
+            alert('حدث خطأ أثناء الحفظ.');
+        } finally {
+            btn.innerText = 'حفظ التغييرات';
+        }
+    });
+
+    window.onload = loadQuestions;
+
+</script>
+</body>
+</html>

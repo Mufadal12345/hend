@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // مجموعة المستخدمين
+    match /users/{userId} {
+      allow create: if true; // السماح بإنشاء مستخدم جديد
+      allow read, update: if true; // في التطبيق الحقيقي، يجب التحقق من الـ Auth، هنا نعتمد على معرفة الـ ID
+    }
+    // مجموعة الإجابات
+    match /responses/{responseId} {
+      allow create: if true; // أي شخص لديه الرابط يمكنه الإجابة
+      allow read: if true; // صاحب الحساب يقرأ الإجابات بناءً على الـ userId داخل الوثيقة
+    }
+  }
+}
